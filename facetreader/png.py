@@ -7,6 +7,19 @@ from .errors import InvalidBundle, require
 SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
+def encode_rgb(width, height, pixels):
+    """Encode an RGB buffer for a locally derived display, distinct from the
+    producer's own encoder. Only used for reviewer output, never to claim
+    fidelity to the committed color pass."""
+    require(0 < width <= MAX_SIDE and 0 < height <= MAX_SIDE, "png_extent", "Display extent is invalid")
+    require(len(pixels) == width * height * 3, "png_extent", "Display pixel count is invalid")
+    sign = lambda kind, data: (struct.pack(">I", len(data)) + kind + data +
+                               struct.pack(">I", zlib.crc32(kind + data) & 0xffffffff))
+    rows = b"".join(b"\x00" + pixels[y*width*3:(y+1)*width*3] for y in range(height))
+    header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    return SIGNATURE + sign(b"IHDR", header) + sign(b"IDAT", zlib.compress(rows, 6)) + sign(b"IEND", b"")
+
+
 def _paeth(left, up, upper_left):
     prediction = left + up - upper_left
     distances = (abs(prediction-left), abs(prediction-up), abs(prediction-upper_left))

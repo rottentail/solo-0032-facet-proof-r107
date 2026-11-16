@@ -2,6 +2,12 @@ from .algebra import add, dot, scale, unit
 
 
 def illuminate(normal, pigment, lighting, view_direction):
+    """Return measured linear light, deliberately not clamped to a display range.
+
+    Clamping here would merge distinct bright samples before they are measured;
+    display limits belong to the display transform, which keeps every review
+    setting derivable from this one value.
+    """
     if pigment["two_sided"] and dot(normal, view_direction) < 0:
         normal = scale(normal, -1)
     result = [v * lighting["ambient"] for v in pigment["linear"]]
@@ -15,4 +21,4 @@ def illuminate(normal, pigment, lighting, view_direction):
         for channel in range(3):
             result[channel] += emitter["intensity"] * emitter["color"][channel] * (
                 pigment["linear"][channel] * diffuse + specular)
-    return [min(1., max(0., v)) for v in result]
+    return [max(0., v) for v in result]

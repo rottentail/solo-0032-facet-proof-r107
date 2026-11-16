@@ -12,6 +12,7 @@ from .proofs import Proofs
 from .bundles import Bundles
 from .resources import ResourceBudget
 from .maintenance import Maintenance
+from .views import Displays
 
 class Application:
     def __init__(self, root):
@@ -27,6 +28,7 @@ class Application:
         self.worker = Worker(self.db, self.exposures, self.plates, self.blobs)
         self.tiles = self.worker.tiles
         self.comparisons = Comparisons(self.db, self.plates, self.blobs)
+        self.displays = Displays(self.db, self.plates, self.blobs)
         self.proofs = Proofs(self.db, self.plates)
         self.bundles = Bundles(self.db, self.plates, self.blobs)
         self.maintenance = Maintenance(self.db, self.blobs, self.plates)

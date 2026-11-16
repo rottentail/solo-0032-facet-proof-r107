@@ -196,6 +196,21 @@
       "id": "reader_png",
       "path": "facetreader/png.py",
       "responsibility": "独立PNG块、CRC、解压与滤波解码"
+    },
+    {
+      "id": "display",
+      "path": "facetproof/display.py",
+      "responsibility": "不受显示截断的线性光测量、显示变换与量化损失声明"
+    },
+    {
+      "id": "views",
+      "path": "facetproof/views.py",
+      "responsibility": "从存光派生内容寻址审阅显示，转换在写事务外进行"
+    },
+    {
+      "id": "reader_light",
+      "path": "facetreader/light.py",
+      "responsibility": "独立读取器对存光通道的解码与离线显示重算"
     }
   ],
   "workflows": [
@@ -639,6 +654,67 @@
       "success": "报告最终图版和在途分块引用及字节核验，非法操作标识拒绝",
       "failure": "合法拒绝保留既有承诺和历史事实，不产生半完成结果",
       "verification": "python3 -m facetproof.demo --flow content-inspection"
+    },
+    {
+      "id": "display-review",
+      "name": "审阅显示派生",
+      "entry": "POST /facet/v1/plates/{id}/bind",
+      "module_ids": [
+        "display",
+        "views",
+        "plates",
+        "comparison",
+        "blobs"
+      ],
+      "steps": [
+        "通过公开生产入口接受操作",
+        "维护持久领域事实及引用边界",
+        "读取结果并核对成功与合法拒绝"
+      ],
+      "success": "同一存光派生不同显示，收缩级别数与损失可观察，且不报告为场景变化",
+      "failure": "合法拒绝保留既有承诺和历史事实，不产生半完成结果",
+      "verification": "python3 -m facetproof.demo --flow display-review"
+    },
+    {
+      "id": "display-concurrency",
+      "name": "显示并发与取消",
+      "entry": "POST /facet/v1/plates/{id}/bind 与 POST /facet/v1/worker/step",
+      "module_ids": [
+        "display",
+        "views",
+        "exposures",
+        "worker",
+        "resources",
+        "plates"
+      ],
+      "steps": [
+        "通过公开生产入口接受操作",
+        "维护持久领域事实及引用边界",
+        "读取结果并核对成功与合法拒绝"
+      ],
+      "success": "并行曝光在显示转换期间持续心跳并可取消，转换不占用长期写事务",
+      "failure": "合法拒绝保留既有承诺和历史事实，不产生半完成结果",
+      "verification": "python3 -m facetproof.demo --flow display-concurrency"
+    },
+    {
+      "id": "legacy-plate",
+      "name": "旧版图版读取与冒充拒绝",
+      "entry": "GET /facet/v1/plates/{id}/bundle 与 facetreader",
+      "module_ids": [
+        "display",
+        "plates",
+        "bundles",
+        "reader_format",
+        "reader_light"
+      ],
+      "steps": [
+        "通过公开生产入口接受操作",
+        "维护持久领域事实及引用边界",
+        "读取结果并核对成功与合法拒绝"
+      ],
+      "success": "只有显示字节的旧包可读且标为未存光，冒充存光被拒绝",
+      "failure": "合法拒绝保留既有承诺和历史事实，不产生半完成结果",
+      "verification": "python3 -m facetproof.demo --flow legacy-plate"
     }
   ],
   "complexity": {

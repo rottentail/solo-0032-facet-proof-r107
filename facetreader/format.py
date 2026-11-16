@@ -4,8 +4,9 @@ import json
 import math
 import re
 import struct
-from .archive import CHANNELS, MAX_SIDE, read_members
+from .archive import CHANNELS, LIGHT_CHANNELS, MAX_SIDE, read_members
 from .errors import InvalidBundle, require
+from .light import decode_light
 from .png import decode_rgb
 
 TRUST = {
@@ -97,7 +98,7 @@ def evaluate(raw):
     seal = _json(members["seal.json"], "seal.json")
     payload = _object(plate.get("payload"), "plate.payload")
     frozen = _object(seal.get("payload"), "seal.payload")
-    require(payload.get("format") == "facet-plate-1" and frozen.get("format") == "facet-seal-1",
+    require(payload.get("format") in {"facet-plate-1", "facet-plate-2"} and frozen.get("format") == "facet-seal-1",
             "format", "Unsupported plate or seal format")
     require(plate.get("state") == "ready" and seal.get("kind") == "seal"
             and seal.get("state") == "frozen", "metadata_state", "Unexpected embedded plate or seal state")
@@ -123,8 +124,14 @@ def evaluate(raw):
     _text(request.get("renderer"), "request.renderer")
     objects = _objects(frozen, payload.get("objects"))
     descriptors = _object(payload.get("passes"), "passes")
-    require(set(descriptors) == CHANNELS, "channels", "Expected exactly the six version-one channels")
-    for name in sorted(CHANNELS):
+    format_name = payload.get("format")
+    require(format_name in {"facet-plate-1", "facet-plate-2"}, "format",
+            "Unsupported plate format")
+    has_light = set(descriptors) >= LIGHT_CHANNELS
+    expected = CHANNELS | (LIGHT_CHANNELS if has_light else frozenset())
+    require(set(descriptors) == expected, "channels",
+            "Expected the six display/measurement channels, plus stored light only as a complete pair")
+    for name in sorted(expected):
         descriptor = _object(descriptors[name], "descriptor")
         require(set(descriptor) == {"sha256", "size"}, "descriptor", "Unexpected descriptor fields")
         data = members["passes/" + name]
@@ -133,10 +140,24 @@ def evaluate(raw):
         require(_checksum(descriptor.get("sha256"), "descriptor.sha256") == hashlib.sha256(data).hexdigest(),
                 "channel_hash", "Channel checksum mismatch: " + name)
         if not name.endswith(".png"):
-            stride = 3 if name == "color.rgb" else 4
+            stride = {"color.rgb": 3, "bright.rgb": 3, "light.hdr6": 6}.get(name, 4)
             require(size == width * height * stride, "extent", "Raw channel extent mismatch: " + name)
     require(_checksum(payload.get("visual_hash"), "visual_hash") == _digest(descriptors),
             "visual_hash", "Channel manifest checksum mismatch")
+    display = payload.get("display")
+    require((display is not None) == has_light, "display_metadata",
+            "A package with stored light must declare how it is displayed; one without must not claim to")
+    declare = "no_light"
+    decoded_light = None
+    if has_light:
+        display = _object(display, "display")
+        require(display.get("light_format") == "facet-light-hdr6"
+                and display.get("encoding") == "light-hdr6"
+                and display.get("bytes_per_pixel") == 6
+                and display.get("model") == "facet-display-1",
+                "display_metadata", "Unsupported light or display model")
+        decoded_light = decode_light(members["passes/light.hdr6"], display, width, height)
+        declare = "stored_light"
     decoded = {name: decode_rgb(members["passes/" + name], width, height)
                for name in ("color.png", "depth.png", "object.png")}
     require(decoded["color.png"] == members["passes/color.rgb"],
@@ -182,11 +203,12 @@ def evaluate(raw):
     require(type(statistics.get("covered_pixels")) is int and statistics["covered_pixels"] == covered,
             "coverage", "Coverage count disagrees with the identifier channel")
     report = {
-        "valid": True, "format": "facet-plate-1",
+        "valid": True, "format": format_name,
         "summary": {"width": width, "height": height, "samples": samples,
                     "covered_pixels": covered, "background_pixels": background,
                     "objects": len(objects), "finite_depth_range": [minimum, maximum] if covered else None,
-                    "depth_units": "camera_forward_distance", "object_id_scope": "local_to_this_plate"},
+                    "depth_units": "camera_forward_distance", "object_id_scope": "local_to_this_plate",
+                    "stored_light": declare},
         "provenance": {"plate_id": plate_id, "exposure_id": exposure_id, "seal_id": seal_id,
                        "seal_hash": content_hash, "lens_hash": payload["lens_hash"],
                        "visual_hash": payload["visual_hash"], "renderer": request["renderer"],
@@ -200,4 +222,44 @@ def evaluate(raw):
                            for item in sorted(frozen["closure"], key=lambda item: item["placement"]["key"])]},
         "channels": descriptors, "picks": picks, "trust": dict(TRUST),
     }
+    if has_light:
+        if "light.json" in members:
+            meta = _json(members["light.json"], "light.json")
+            require(meta.get("format") == "facet-light-1" and meta.get("light") == descriptors["light.hdr6"]
+                    and meta.get("display") == display and meta.get("color") == descriptors["color.rgb"]
+                    and meta.get("bright") == descriptors["bright.rgb"],
+                    "light_metadata", "light.json disagrees with the plate channel manifest")
+        else:
+            raise InvalidBundle("light_metadata", "Stored light must be accompanied by light.json")
+        report["light"] = {
+            "format": display["light_format"],
+            "bytes_per_pixel": display["bytes_per_pixel"],
+            "encoding": display["encoding"],
+            "layout": display["layout"],
+            "maximum_linear": decoded_light["maximum_linear"],
+            "above_one_pixels": decoded_light["above_one_pixels"],
+            "bright_format": display.get("bright_format"),
+            "bright_sampling": display.get("bright_sampling"),
+            "functions": display.get("functions"),
+            "windows": display.get("windows"),
+            "highlight_collapse": display.get("highlight_collapse"),
+            "quantization": display.get("quantization"),
+            "limits": display.get("limits"),
+            "retone_available": "The light channel is present; a consumer can recompute a "
+                                "different display offline. Only displays derived from it are comparable.",
+            "trust": "Light was decoded from documented bytes and checked against the manifest. "
+                     "It is a measured sample record, not proof the render is physically correct.",
+        }
+        report["trust"]["display_vs_scene"] = (
+            "color.png and color.rgb are a display choice derived from light. "
+            "A difference in those bytes alone is not evidence of a scene or illumination change.")
+    else:
+        require("light.json" not in members, "channels",
+                "A version-one package must not contain light metadata")
+        report["light"] = {
+            "format": None,
+            "status": "not_stored",
+            "limit": "This plate predates stored light. Only display bytes exist, so it cannot be "
+                     "re-toned or compared on a shared linear scale.",
+        }
     return report, members

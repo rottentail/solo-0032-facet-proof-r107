@@ -50,6 +50,14 @@ class Blobs:
                 "plate_corrupt", "Plate checksum mismatch", 409)
         return data
 
+    def size(self, checksum):
+        """Report stored byte length without reading content into memory."""
+        path = self.path(checksum)
+        try:
+            return path.stat().st_size
+        except OSError as exc:
+            raise Fault("plate_missing", "Plate bytes unavailable", 409) from exc
+
     def inventory(self):
         entries = []
         for directory in sorted(self.root.iterdir()):

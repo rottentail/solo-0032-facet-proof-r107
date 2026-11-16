@@ -1,5 +1,6 @@
 import time
 from .errors import Fault, require
+from .display import PLATE_FORMAT
 from .planner import build_plan
 from .tile_renderer import TileEngine
 from .passes import serialize_passes
@@ -31,16 +32,16 @@ class Worker:
             plan = build_plan(seal, exposure["request"])
             checkpoint()
             rendered = self.tiles.render(exposure, plan, checkpoint)
-            passes, statistics = serialize_passes(plan, rendered, exposure["request"])
+            passes, statistics, display = serialize_passes(plan, rendered, exposure["request"])
             descriptors = {}
             for name, data in passes.items():
                 checkpoint()
                 descriptors[name] = self.blobs.put(data)
-            payload = {"format": "facet-plate-1", "seal_id": exposure["seal_id"],
+            payload = {"format": PLATE_FORMAT, "seal_id": exposure["seal_id"],
                        "seal_hash": seal["content_hash"], "request": exposure["request"],
                        "width": exposure["request"]["width"], "height": exposure["request"]["height"],
                        "lens_hash": plan["lens_hash"], "objects": plan["objects"],
-                       "passes": descriptors, "statistics": statistics,
+                       "passes": descriptors, "statistics": statistics, "display": display,
                        "visual_hash": digest(descriptors)}
             self.exposures.heartbeat(exposure["id"], exposure["token"])
             plate = self.plates.finish(exposure, payload)

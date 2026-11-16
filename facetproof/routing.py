@@ -32,6 +32,7 @@ def route_request(app, method, target, data=None):
         if method == "GET" and group == "exposures": return app.exposures.get(ident)
         if method == "GET" and group == "plates": return app.plates.get(ident)
         if method == "GET" and group == "proofs": return app.proofs.get(ident)
+        if method == "GET" and group == "displays": return app.displays.get(ident)
         if method == "PUT" and group == "assemblies": return app.assemblies.revise(ident, data)
         if method == "PUT" and group == "pigments":
             require("revision" in data, "revision", "Expected revision is required")
@@ -51,9 +52,13 @@ def route_request(app, method, target, data=None):
         if method == "POST" and group == "plates" and action == "verify": return app.plates.verify(ident)
         if method == "POST" and group == "plates" and action == "quarantine": return app.plates.quarantine(ident, data.get("reason"))
         if method == "POST" and group == "plates" and action == "purge": return app.plates.purge(ident)
+        if method == "POST" and group == "plates" and action == "bind": return app.displays.create(ident, data)
         if method == "POST" and group == "plates" and action == "proofs": return app.proofs.open(ident, data)
         if method == "POST" and group == "proofs" and action == "decide": return app.proofs.decide(ident, data)
         if method == "GET" and group == "plates" and action == "bundle": return app.bundles.export(ident), "application/zip"
+        if method == "GET" and group == "plates" and action == "displays": return app.displays.list(ident)
+        if method == "GET" and group == "displays" and action == "png": return app.displays.read_png(ident), "image/png"
+        if method == "GET" and group == "displays" and action == "rgb": return app.displays.read(ident), "application/octet-stream"
         if method == "GET" and group == "plates" and action == "pick":
             query = parse_qs(url.query)
             try: x, y = int(query["x"][0]), int(query["y"][0])

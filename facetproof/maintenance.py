@@ -289,10 +289,23 @@ class Maintenance:
                 source = {**{k: v for k, v in descriptor.items() if k not in {"sha256", "size"}}, "kind": "tile_checkpoint"}
                 self._merge_reference(refs, descriptor, source)
                 tile_count += 1
+        display_count = 0
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='facet_displays'").fetchone():
+            # Review displays are derived from plate light, but their bytes are
+            # already published. A restore must reproduce the same records, so
+            # reference them rather than leave rows pointing at absent content.
+            for row in conn.execute("SELECT id,plate_id,light_sha256,display_sha256 FROM facet_displays ORDER BY id"):
+                for name, checksum_ref in (("display", row["display_sha256"]),):
+                    descriptor = {"sha256": checksum_ref, "size": self.blobs.size(checksum_ref)}
+                    self._merge_reference(refs, descriptor,
+                                          {"kind": "review_display", "display_id": row["id"],
+                                           "plate_id": row["plate_id"], "channel": name})
+                    display_count += 1
         for item in refs.values():
             item["sources"].sort(key=canonical)
         return {"references": [refs[key] for key in sorted(refs)], "plate_count": len(rows),
                 "plate_states": states, "tile_channel_references": tile_count,
+                "display_references": display_count,
                 "event_sequence": conn.execute("SELECT COALESCE(MAX(seq),0) FROM events").fetchone()[0]}
 
     @contextmanager

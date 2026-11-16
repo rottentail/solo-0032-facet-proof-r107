@@ -9,13 +9,17 @@ from .errors import InvalidBundle, require
 
 CHANNELS = frozenset({"color.rgb", "depth.f32", "object.u32",
                       "color.png", "depth.png", "object.png"})
-MEMBERS = frozenset({"plate.json", "seal.json"}) | {
+# Version two adds the stored light measurement and its fixed-window bright
+# preview. They are optional as a set; version one packages carry neither.
+LIGHT_CHANNELS = frozenset({"light.hdr6", "bright.rgb"})
+MEMBERS = frozenset({"plate.json", "seal.json", "light.json"}) | {
+    "passes/" + name for name in CHANNELS | LIGHT_CHANNELS}
+MEMBERS_BASE = frozenset({"plate.json", "seal.json"}) | {
     "passes/" + name for name in CHANNELS}
 MAX_ARCHIVE_BYTES = 64 * 1024 * 1024
 MAX_JSON_BYTES = 64 * 1024 * 1024
 MAX_UNPACKED_BYTES = 128 * 1024 * 1024
 MAX_SIDE = 512
-
 
 def load_file(path):
     try:
@@ -32,7 +36,8 @@ def _limit(name):
         return MAX_JSON_BYTES
     if name.endswith(".png"):
         return 4 * 1024 * 1024
-    return MAX_SIDE * MAX_SIDE * (3 if name.endswith(".rgb") else 4)
+    stride = {"color.rgb": 3, "bright.rgb": 3, "light.hdr6": 6}.get(name, 4)
+    return MAX_SIDE * MAX_SIDE * stride
 
 
 def read_members(raw):
@@ -61,7 +66,9 @@ def read_members(raw):
                         "archive_size", "Archive member exceeds decoded size limit")
                 total += entry.file_size
                 require(total <= MAX_UNPACKED_BYTES, "archive_size", "Decoded archive exceeds limit")
-            require(names == MEMBERS, "archive_members", "Bundle must contain exactly two metadata files and six channels")
+            require(MEMBERS_BASE <= names and names <= MEMBERS, "archive_members",
+                    "Bundle must contain the two metadata files and the six base channels, "
+                    "optionally with the stored-light pair and light.json")
             result = {}
             for entry in entries:
                 with archive.open(entry) as stream:
